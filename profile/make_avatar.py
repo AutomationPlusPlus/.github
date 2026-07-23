@@ -2,7 +2,9 @@
 """Generate the AutomationPlusPlus org avatar (profile/avatar.png).
 
 Arms use DejaVu Sans Bold unstroked — a uniform stroke fuses the tightly
-packed ¯ \\ _ ( glyphs into blobs. Only the thin serif ツ gets a mild stroke.
+packed ¯ \\ _ ( glyphs into blobs. The serif ツ gets a mild stroke and is
+sized/positioned by ink bbox so it sits centered between the parentheses
+instead of hanging below their baseline.
 """
 from PIL import Image, ImageDraw, ImageFont
 
@@ -12,48 +14,64 @@ BG, FG, ACCENT = (15, 23, 42), (241, 245, 249), (129, 140, 248)
 DEJAVU = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 CJK = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc"
 
-def build(font_size):
-    dv = ImageFont.truetype(DEJAVU, font_size)
-    face_size = int(font_size * 1.4)
-    cjk = ImageFont.truetype(CJK, face_size, index=2)  # index 2 = JP
-    face_stroke = int(face_size * 0.03)
-    return [("¯\\_(", dv, 0), ("ツ", cjk, face_stroke), (")_/¯", dv, 0)]
-
 img = Image.new("RGB", (W, W), BG)
 d = ImageDraw.Draw(img)
 
-# size the shrug to ~90% of the canvas width
-target = int(W * 0.90)
+def face_font_for(paren_ink_h, guess):
+    # scale the face font so its ink height is ~88% of the paren ink height
+    for _ in range(10):
+        f = ImageFont.truetype(CJK, guess, index=2)  # index 2 = JP
+        st = int(guess * 0.03)
+        b = d.textbbox((0, 0), "ツ", font=f, stroke_width=st)
+        ink = b[3] - b[1]
+        target = paren_ink_h * 0.88
+        if abs(ink - target) < 4:
+            break
+        guess = int(guess * target / ink)
+    return f, st
+
+def layout(fs):
+    dv = ImageFont.truetype(DEJAVU, fs)
+    pb = d.textbbox((0, 0), "(", font=dv)
+    cjk, st = face_font_for(pb[3] - pb[1], int(fs * 1.1))
+    return dv, cjk, st, pb
+
+# fit total width to ~90% of the canvas
 fs = 400
 for _ in range(20):
-    segs = build(fs)
-    w = sum(d.textlength(t, font=f) for t, f, _ in segs)
-    if abs(w - target) < 8:
+    dv, cjk, st, pb = layout(fs)
+    total = (d.textlength("¯\\_(", font=dv) + d.textlength("ツ", font=cjk)
+             + d.textlength(")_/¯", font=dv))
+    target_w = W * 0.90
+    if abs(total - target_w) < 8:
         break
-    fs = int(fs * target / w)
-segs = build(fs)
-total_w = sum(d.textlength(t, font=f) for t, f, _ in segs)
+    fs = int(fs * target_w / total)
 
-# center vertically on the combined ink bbox
-tops, bottoms = [], []
-for t, f, st in segs:
-    b = d.textbbox((0, 0), t, font=f, stroke_width=st)
-    tops.append(b[1])
-    bottoms.append(b[3])
-top, bottom = min(tops), max(bottoms)
+dv, cjk, st, pb = layout(fs)
+w_left = d.textlength("¯\\_(", font=dv)
+w_face = d.textlength("ツ", font=cjk)
+total = w_left + w_face + d.textlength(")_/¯", font=dv)
 
-x = (W - total_w) / 2
-y = (W - (bottom - top)) / 2 - top
-for t, f, st in segs:
-    d.text((x, y), t, font=f, fill=FG, stroke_width=st, stroke_fill=FG)
-    x += d.textlength(t, font=f)
+# arms: center the full-arm ink bbox on the canvas
+ab = d.textbbox((0, 0), "¯\\_()_/¯", font=dv)
+x = (W - total) / 2
+y_arms = (W - (ab[3] - ab[1])) / 2 - ab[1]
+
+# face: center its ink on the paren ink center
+paren_center = y_arms + (pb[1] + pb[3]) / 2
+fb = d.textbbox((0, 0), "ツ", font=cjk, stroke_width=st)
+y_face = paren_center - (fb[1] + fb[3]) / 2
+
+d.text((x, y_arms), "¯\\_(", font=dv, fill=FG)
+d.text((x + w_left, y_face), "ツ", font=cjk, fill=FG, stroke_width=st, stroke_fill=FG)
+d.text((x + w_left + w_face, y_arms), ")_/¯", font=dv, fill=FG)
 
 # "++" accent, bottom right
 pp = ImageFont.truetype(DEJAVU, int(W * 0.14))
-pb = d.textbbox((0, 0), "++", font=pp)
-d.text((W - (pb[2] - pb[0]) - int(W * 0.06), W - (pb[3] - pb[1]) - pb[1] - int(W * 0.05)),
+ppb = d.textbbox((0, 0), "++", font=pp)
+d.text((W - (ppb[2] - ppb[0]) - int(W * 0.06), W - (ppb[3] - ppb[1]) - ppb[1] - int(W * 0.05)),
        "++", font=pp, fill=ACCENT)
 
 img = img.resize((SIZE, SIZE), Image.LANCZOS)
 img.save("avatar.png")
-print("saved avatar.png, font", fs)
+print("saved avatar.png, arm font", fs)
