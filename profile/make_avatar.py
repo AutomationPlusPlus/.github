@@ -1,69 +1,59 @@
 #!/usr/bin/env python3
-"""Generate the AutomationPlusPlus org avatar: shrug kaomoji on a dark card."""
+"""Generate the AutomationPlusPlus org avatar (profile/avatar.png).
+
+Arms use DejaVu Sans Bold unstroked — a uniform stroke fuses the tightly
+packed ¯ \\ _ ( glyphs into blobs. Only the thin serif ツ gets a mild stroke.
+"""
 from PIL import Image, ImageDraw, ImageFont
 
-SIZE = 512
-SS = 4  # supersample for crisp downscale
+SIZE, SS = 512, 4  # supersample 4x for crisp downscale
 W = SIZE * SS
-BG = (15, 23, 42)        # slate-900
-FG = (241, 245, 249)     # slate-100
-ACCENT = (129, 140, 248) # indigo-400
-
+BG, FG, ACCENT = (15, 23, 42), (241, 245, 249), (129, 140, 248)
 DEJAVU = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 CJK = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc"
 
-STROKE_FRAC = 0.045  # extra stroke as fraction of font size, to fatten thin glyphs
-
-def segments(font_size):
+def build(font_size):
     dv = ImageFont.truetype(DEJAVU, font_size)
-    cjk = ImageFont.truetype(CJK, int(font_size * 1.35), index=2)  # JP face, upsized
-    return [("¯\\_(", dv), ("ツ", cjk), (")_/¯", dv)]
+    face_size = int(font_size * 1.4)
+    cjk = ImageFont.truetype(CJK, face_size, index=2)  # index 2 = JP
+    face_stroke = int(face_size * 0.03)
+    return [("¯\\_(", dv, 0), ("ツ", cjk, face_stroke), (")_/¯", dv, 0)]
 
 img = Image.new("RGB", (W, W), BG)
 d = ImageDraw.Draw(img)
 
-# find the font size that makes the shrug fit ~88% of width (incl. stroke)
-target = int(W * 0.88)
-font_size = 400
+# size the shrug to ~90% of the canvas width
+target = int(W * 0.90)
+fs = 400
 for _ in range(20):
-    segs = segments(font_size)
-    stroke = int(font_size * STROKE_FRAC)
-    w = sum(d.textlength(t, font=f) for t, f in segs) + 2 * stroke
+    segs = build(fs)
+    w = sum(d.textlength(t, font=f) for t, f, _ in segs)
     if abs(w - target) < 8:
         break
-    font_size = int(font_size * target / w)
-segs = segments(font_size)
-stroke = int(font_size * STROKE_FRAC)
-total_w = sum(d.textlength(t, font=f) for t, f in segs)
+    fs = int(fs * target / w)
+segs = build(fs)
+total_w = sum(d.textlength(t, font=f) for t, f, _ in segs)
 
-# vertical centering from the combined ink bbox of the whole composite
+# center vertically on the combined ink bbox
 tops, bottoms = [], []
-for t, f in segs:
-    bbox = d.textbbox((0, 0), t, font=f, stroke_width=stroke)
-    tops.append(bbox[1])
-    bottoms.append(bbox[3])
+for t, f, st in segs:
+    b = d.textbbox((0, 0), t, font=f, stroke_width=st)
+    tops.append(b[1])
+    bottoms.append(b[3])
 top, bottom = min(tops), max(bottoms)
 
 x = (W - total_w) / 2
 y = (W - (bottom - top)) / 2 - top
-for t, f in segs:
-    d.text((x, y), t, font=f, fill=FG, stroke_width=stroke, stroke_fill=FG)
+for t, f, st in segs:
+    d.text((x, y), t, font=f, fill=FG, stroke_width=st, stroke_fill=FG)
     x += d.textlength(t, font=f)
 
-# "++" accent, bottom right — bigger and bolder than before
-pp_font = ImageFont.truetype(DEJAVU, int(W * 0.16))
-pp_bbox = d.textbbox((0, 0), "++", font=pp_font)
-d.text((W - (pp_bbox[2] - pp_bbox[0]) - int(W * 0.06), W - (pp_bbox[3] - pp_bbox[1]) - pp_bbox[1] - int(W * 0.05)),
-       "++", font=pp_font, fill=ACCENT)
+# "++" accent, bottom right
+pp = ImageFont.truetype(DEJAVU, int(W * 0.14))
+pb = d.textbbox((0, 0), "++", font=pp)
+d.text((W - (pb[2] - pb[0]) - int(W * 0.06), W - (pb[3] - pb[1]) - pb[1] - int(W * 0.05)),
+       "++", font=pp, fill=ACCENT)
 
 img = img.resize((SIZE, SIZE), Image.LANCZOS)
-out = "/tmp/claude-1000/-code/d6f7ba8f-76ca-4134-84ac-eabb06e70e57/scratchpad/avatar.png"
-img.save(out)
-
-# small-size legibility proof sheet: 48px and 96px pasted on a canvas
-sheet = Image.new("RGB", (400, 160), (40, 40, 48))
-sheet.paste(img.resize((96, 96), Image.LANCZOS), (24, 32))
-sheet.paste(img.resize((48, 48), Image.LANCZOS), (160, 56))
-sheet.paste(img.resize((32, 32), Image.LANCZOS), (248, 64))
-sheet.save("/tmp/claude-1000/-code/d6f7ba8f-76ca-4134-84ac-eabb06e70e57/scratchpad/avatar_small_preview.png")
-print("saved", out, "font_size", font_size, "stroke", stroke)
+img.save("avatar.png")
+print("saved avatar.png, font", fs)
